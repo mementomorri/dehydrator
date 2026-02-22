@@ -1,0 +1,60 @@
+{
+  "scenarios": [
+    {
+      "id": "list_comprehension",
+      "input_pattern": "for.*append",
+      "input_code": "result = []\nfor x in items:\n    result.append(x * 2)",
+      "suggested_code": "result = [x * 2 for x in items]",
+      "description": "Convert for-loop with append to list comprehension",
+      "language": "python"
+    },
+    {
+      "id": "dict_comprehension",
+      "input_pattern": "for.*\\[key\\].*=.*=",
+      "input_code": "result = {}\nfor k, v in items:\n    result[k] = v * 2",
+      "suggested_code": "result = {k: v * 2 for k, v in items}",
+      "description": "Convert for-loop with dict assignment to dict comprehension",
+      "language": "python"
+    },
+    {
+      "id": "set_comprehension",
+      "input_pattern": "for.*add\\(",
+      "input_code": "result = set()\nfor x in items:\n    result.add(x.lower())",
+      "suggested_code": "result = {x.lower() for x in items}",
+      "description": "Convert for-loop with set.add to set comprehension",
+      "language": "python"
+    },
+    {
+      "id": "fstring",
+      "input_pattern": "\\+.*str\\(|%.*%|\\.format\\(",
+      "input_code": "message = \"Hello, \" + name + \"! You are \" + str(age) + \" years old.\"",
+      "suggested_code": "message = f\"Hello, {name}! You are {age} years old.\"",
+      "description": "Convert string concatenation to f-string",
+      "language": "python"
+    },
+    {
+      "id": "context_manager",
+      "input_pattern": "open\\(.*\\).*close\\(\\)",
+      "input_code": "f = open(\"file.txt\", \"r\")\ntry:\n    content = f.read()\nfinally:\n    f.close()",
+      "suggested_code": "with open(\"file.txt\", \"r\") as f:\n    content = f.read()",
+      "description": "Convert try-finally file handling to context manager",
+      "language": "python"
+    },
+    {
+      "id": "enumerate",
+      "input_pattern": "for.*range\\(len\\(",
+      "input_code": "for i in range(len(items)):\n    print(i, items[i])",
+      "suggested_code": "for i, item in enumerate(items):\n    print(i, item)",
+      "description": "Convert range(len()) to enumerate",
+      "language": "python"
+    },
+    {
+      "id": "any_all",
+      "input_pattern": "for.*if.*return True|for.*if.*return False",
+      "input_code": "for x in items:\n    if x > 0:\n        return True\nreturn False",
+      "suggested_code": "return any(x > 0 for x in items)",
+      "description": "Convert early return loop to any()",
+      "language": "python"
+    }
+  ]
+}

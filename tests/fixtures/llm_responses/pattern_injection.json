@@ -1,0 +1,49 @@
+{
+  "scenarios": [
+    {
+      "id": "strategy_pattern",
+      "detection_criteria": {
+        "min_if_count": 5,
+        "pattern": "complex_conditionals",
+        "description": "Detect when complex conditionals would benefit from Strategy pattern"
+      },
+      "input_code": "def process_payment(type, amount):\n    if type == 'credit':\n        return process_credit(amount)\n    elif type == 'debit':\n        return process_debit(amount)\n    elif type == 'paypal':\n        return process_paypal(amount)\n    elif type == 'bank':\n        return process_bank(amount)\n    else:\n        raise ValueError('Unknown type')",
+      "suggested_pattern": "Strategy",
+      "suggested_code": "class PaymentStrategy(ABC):\n    @abstractmethod\n    def process(self, amount): pass\n\nclass CreditStrategy(PaymentStrategy):\n    def process(self, amount): return process_credit(amount)\n\nclass DebitStrategy(PaymentStrategy):\n    def process(self, amount): return process_debit(amount)\n\nclass PaymentProcessor:\n    def __init__(self, strategy: PaymentStrategy):\n        self._strategy = strategy\n    \n    def process(self, amount):\n        return self._strategy.process(amount)",
+      "description": "Extract conditional logic into Strategy pattern"
+    },
+    {
+      "id": "factory_pattern",
+      "detection_criteria": {
+        "pattern": "conditional_instantiation",
+        "description": "Detect when conditional object creation would benefit from Factory pattern"
+      },
+      "input_code": "def create_handler(type):\n    if type == 'http':\n        return HTTPHandler()\n    elif type == 'grpc':\n        return GRPCHandler()\n    elif type == 'websocket':\n        return WebSocketHandler()\n    else:\n        raise ValueError('Unknown handler')",
+      "suggested_pattern": "Factory",
+      "suggested_code": "class HandlerFactory:\n    _handlers = {\n        'http': HTTPHandler,\n        'grpc': GRPCHandler,\n        'websocket': WebSocketHandler,\n    }\n    \n    @classmethod\n    def create(cls, handler_type):\n        if handler_type not in cls._handlers:\n            raise ValueError('Unknown handler')\n        return cls._handlers[handler_type]()",
+      "description": "Extract conditional instantiation into Factory pattern"
+    },
+    {
+      "id": "observer_pattern",
+      "detection_criteria": {
+        "keywords": ["emit", "trigger", "dispatch", "notify", "subscribe"],
+        "description": "Detect when event handling would benefit from Observer pattern"
+      },
+      "input_code": "class EventEmitter:\n    def __init__(self):\n        self._callbacks = []\n    \n    def on(self, callback):\n        self._callbacks.append(callback)\n    \n    def emit(self, data):\n        for callback in self._callbacks:\n            callback(data)",
+      "suggested_pattern": "Observer",
+      "suggested_code": "class Observer(ABC):\n    @abstractmethod\n    def update(self, subject, data): pass\n\nclass Subject:\n    def __init__(self):\n        self._observers = []\n    \n    def attach(self, observer: Observer):\n        self._observers.append(observer)\n    \n    def detach(self, observer: Observer):\n        self._observers.remove(observer)\n    \n    def notify(self, data):\n        for observer in self._observers:\n            observer.update(self, data)",
+      "description": "Extract event handling into Observer pattern"
+    },
+    {
+      "id": "singleton_pattern",
+      "detection_criteria": {
+        "pattern": "global_state",
+        "description": "Detect when global state would benefit from Singleton pattern"
+      },
+      "input_code": "_instance = None\n_config = {}\n\ndef get_config():\n    global _instance, _config\n    if _instance is None:\n        _instance = load_config()\n    return _instance",
+      "suggested_pattern": "Singleton",
+      "suggested_code": "class Config:\n    _instance = None\n    \n    def __new__(cls):\n        if cls._instance is None:\n            cls._instance = super().__new__(cls)\n            cls._instance._config = {}\n        return cls._instance\n    \n    @classmethod\n    def get_instance(cls):\n        if cls._instance is None:\n            cls._instance = cls()\n        return cls._instance",
+      "description": "Wrap global state in Singleton pattern"
+    }
+  ]
+}

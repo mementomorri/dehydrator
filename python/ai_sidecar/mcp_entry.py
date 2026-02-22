@@ -105,6 +105,8 @@ class MCPSidecar:
                 return await self._idiomatize(path)
             elif command == "pattern":
                 return await self._pattern(path)
+            elif command == "apply_plan":
+                return await self._apply_plan(path)
             else:
                 return {"error": f"Unknown command: {command}"}
         except Exception as e:
@@ -158,6 +160,113 @@ class MCPSidecar:
         self._plans[plan.session_id] = plan
         return plan.model_dump()
 
+    async def _apply_plan(self, path: str) -> Dict[str, Any]:
+        """
+        Apply a stored refactoring plan with safety checks.
+        
+        This command applies all changes from a previously generated plan.
+        Each change is applied with:
+        1. Automatic checkpoint before diff
+        2. Test execution after diff
+        3. Automatic rollback if tests fail
+        
+        Note: Requires session_id in the request. Use the session_id from
+        a previous deduplicate/idiomatize/pattern command.
+        """
+        return {
+            "error": "apply_plan requires session_id parameter. "
+                     "First run deduplicate/idiomatize/pattern to get a session_id, "
+                     "then call apply_plan with that session_id."
+        }
+    
+    async def apply_plan_by_session(self, session_id: str, run_tests: bool = True) -> Dict[str, Any]:
+        """
+        Apply a stored refactoring plan by session ID.
+        
+        Args:
+            session_id: The session ID from a previous plan generation
+            run_tests: Whether to run tests after each diff (default: True)
+            
+        Returns:
+            Dict with applied changes and any errors
+        """
+        plan = self._plans.get(session_id)
+        if not plan:
+            return {"error": f"No plan found with session_id: {session_id}"}
+        
+        if not plan.changes:
+            return {
+                "session_id": session_id,
+                "success": True,
+                "applied_count": 0,
+                "message": "No changes to apply"
+            }
+        
+        results = []
+        applied_count = 0
+        any_rolled_back = False
+        
+        for i, change in enumerate(plan.changes):
+            if not change.original and change.modified:
+                result = await self.mcp.apply_diff_safe(
+                    path=change.path,
+                    diff=self._create_new_file_diff(change.path, change.modified),
+                    run_tests=run_tests,
+                )
+            elif change.original and change.modified:
+                result = await self.mcp.apply_diff_safe(
+                    path=change.path,
+                    diff=self._create_modify_diff(change.original, change.modified),
+                    run_tests=run_tests,
+                )
+            else:
+                result = {"success": False, "error": "Invalid change: no original or modified content"}
+            
+            results.append({
+                "path": change.path,
+                "description": change.description,
+                "result": result,
+            })
+            
+            if result.get("success"):
+                applied_count += 1
+            elif result.get("rolled_back"):
+                any_rolled_back = True
+                logger.warning(f"Change {i+1} to {change.path} was rolled back due to test failure")
+                break
+            else:
+                logger.error(f"Change {i+1} to {change.path} failed: {result.get('error')}")
+                break
+        
+        return {
+            "session_id": session_id,
+            "success": applied_count == len(plan.changes) and not any_rolled_back,
+            "applied_count": applied_count,
+            "total_changes": len(plan.changes),
+            "any_rolled_back": any_rolled_back,
+            "results": results,
+        }
+    
+    def _create_new_file_diff(self, path: str, content: str) -> str:
+        """Create a diff for creating a new file."""
+        return f"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{len(content.splitlines())} @@\n" + \
+               "\n".join(f"+{line}" for line in content.splitlines())
+    
+    def _create_modify_diff(self, original: str, modified: str) -> str:
+        """Create a simple diff for modifying a file."""
+        orig_lines = original.splitlines()
+        mod_lines = modified.splitlines()
+        
+        diff_lines = [f"--- a/file", f"+++ b/file"]
+        diff_lines.append(f"@@ -1,{len(orig_lines)} +1,{len(mod_lines)} @@")
+        
+        for line in orig_lines:
+            diff_lines.append(f"-{line}")
+        for line in mod_lines:
+            diff_lines.append(f"+{line}")
+        
+        return "\n".join(diff_lines)
+
     async def shutdown(self):
         logger.info("Shutting down MCPSidecar...")
 
@@ -174,6 +283,8 @@ async def main():
     parser = argparse.ArgumentParser(description="reducto AI Sidecar (MCP mode)")
     parser.add_argument("--root", default=".", help="Root directory")
     parser.add_argument("--command", default="analyze", help="Command to execute")
+    parser.add_argument("--session-id", default=None, help="Session ID for apply_plan command")
+    parser.add_argument("--run-tests", action="store_true", default=True, help="Run tests after applying changes")
     args = parser.parse_args()
 
     sidecar = MCPSidecar()
@@ -182,7 +293,11 @@ async def main():
     
     try:
         await sidecar.initialize(args.root)
-        result = await sidecar.run_command(args.command, args.root)
+        
+        if args.command == "apply_plan" and args.session_id:
+            result = await sidecar.apply_plan_by_session(args.session_id, run_tests=args.run_tests)
+        else:
+            result = await sidecar.run_command(args.command, args.root)
         
     except MCPError as e:
         logger.error(f"MCP error: {e}")

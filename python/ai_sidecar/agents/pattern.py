@@ -47,14 +47,18 @@ class PatternAgent:
 
     async def _apply_design_pattern(
         self,
-        files: List[Dict],
+        files,
         pattern: str,
     ) -> List[FileChange]:
         changes = []
 
         for file in files:
-            content = file["content"]
-            path = file["path"]
+            if hasattr(file, 'content'):
+                content = file.content
+                path = file.path
+            else:
+                content = file["content"]
+                path = file["path"]
 
             if pattern == "strategy":
                 file_changes = self._apply_strategy_pattern(content, path)
@@ -127,12 +131,16 @@ class PatternAgent:
 
         return changes
 
-    async def _detect_and_suggest_patterns(self, files: List[Dict]) -> List[FileChange]:
+    async def _detect_and_suggest_patterns(self, files) -> List[FileChange]:
         changes = []
 
         for file in files:
-            content = file["content"]
-            path = file["path"]
+            if hasattr(file, 'content'):
+                content = file.content
+                path = file.path
+            else:
+                content = file["content"]
+                path = file["path"]
 
             if self._has_complex_conditionals(content):
                 changes.append(FileChange(
@@ -165,9 +173,19 @@ class PatternAgent:
         return if_count + elif_count >= 5
 
     def _has_conditional_instantiation(self, content: str) -> bool:
-        patterns = ["new ", "= new ", "return new ", "ClassName("]
+        patterns = ["new ", "= new ", "return new "]
         for pattern in patterns:
             if pattern in content and "if " in content:
+                return True
+        import re
+        if "if " in content:
+            if re.search(r'return\s+\w+Handler\(\)', content):
+                return True
+            if re.search(r'return\s+\w+Factory\(\)', content):
+                return True
+            if re.search(r'return\s+\w+Client\(\)', content):
+                return True
+            if re.search(r'return\s+\w+\(\)', content) and "elif" in content:
                 return True
         return False
 

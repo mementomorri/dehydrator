@@ -107,7 +107,55 @@ func runAnalyze(path string) error {
 	return nil
 }
 
-func runDeduplicate(path string, commitChanges bool) error {
+func runAnalyzeWithReport(path string) error {
+	fmt.Printf("Analyzing repository and generating baseline report: %s\n", path)
+
+	if err := checkGitState(path); err != nil {
+		return err
+	}
+
+	mcpManager = sidecar.NewMCPManager(path, cfg)
+	result, err := mcpManager.Analyze(path)
+	if err != nil {
+		return fmt.Errorf("analysis failed: %w", err)
+	}
+
+	fmt.Printf("\n=== Analysis Results ===\n")
+	fmt.Printf("Total files: %d\n", result.TotalFiles)
+	fmt.Printf("Total symbols: %d\n", result.TotalSymbols)
+	fmt.Printf("Complexity hotspots: %d\n", len(result.Hotspots))
+
+	if len(result.Hotspots) > 0 {
+		fmt.Printf("\n--- Complexity Hotspots ---\n")
+		for _, hs := range result.Hotspots {
+			fmt.Printf("  %s:%d - %s (CC: %d)\n", hs.File, hs.Line, hs.Symbol, hs.CyclomaticComplexity)
+		}
+	}
+
+	baseline := &reporter.BaselineResult{
+		TotalFiles:   result.TotalFiles,
+		TotalSymbols: result.TotalSymbols,
+		Hotspots:     make([]reporter.ComplexityHotspot, len(result.Hotspots)),
+	}
+	for i, hs := range result.Hotspots {
+		baseline.Hotspots[i] = reporter.ComplexityHotspot{
+			File:                 hs.File,
+			Line:                 hs.Line,
+			Symbol:               hs.Symbol,
+			CyclomaticComplexity: hs.CyclomaticComplexity,
+			CognitiveComplexity:  hs.CognitiveComplexity,
+		}
+	}
+
+	rep := reporter.New(cfg)
+	if err := rep.GenerateBaseline(baseline); err != nil {
+		return fmt.Errorf("failed to generate baseline report: %w", err)
+	}
+
+	return nil
+}
+
+func runDeduplicate(path string, commitChanges bool, generateReport bool) error {
 	fmt.Printf("Running deduplication: %s\n", path)
 
 	if err := checkGitState(path); err != nil {
@@ -123,6 +171,10 @@ func runDeduplicate(path string, commitChanges bool) error {
 	fmt.Printf("\n=== Refactoring Plan ===\n")
 	fmt.Printf("%s\n", plan.Description)
 
+	if generateReport {
+		fmt.Printf("\nSession ID: %s\n", plan.SessionID)
+	}
+
 	if !cfg.PreApprove {
 		fmt.Printf("\nApply these changes? [y/N]: ")
 		var response string
@@ -133,6 +185,11 @@ func runDeduplicate(path string, commitChanges bool) error {
 	}
 
 	fmt.Println("\nDeduplication plan generated. Apply functionality coming soon.")
+
+	if generateReport {
+		fmt.Printf("\nRun 'reducto report --session %s' to see the full report.\n", plan.SessionID)
+	}
+
 	return nil
 }
 
@@ -233,6 +290,11 @@ var analyzeCmd = &cobra.Command{
 			path = args[0]
 		}
 
+		generateReport, _ := cmd.Flags().GetBool("report")
+
+		if generateReport {
+			return runAnalyzeWithReport(path)
+		}
 		return runAnalyze(path)
 	},
 }
@@ -253,8 +315,9 @@ and suggests or applies refactoring to eliminate duplication.`,
 		cfg.PreApprove = preApprove
 
 		commitChanges, _ := cmd.Flags().GetBool("commit")
+		generateReport, _ := cmd.Flags().GetBool("report")
 
-		return runDeduplicate(path, commitChanges)
+		return runDeduplicate(path, commitChanges, generateReport)
 	},
 }
 
@@ -339,11 +402,14 @@ This is primarily used by the Python AI sidecar for communication.`,
 }
 
 func initCommands() {
-	analyzeCmd.Flags().Bool("report", false, "generate report after analysis")
+	analyzeCmd.Flags().Bool("report", false, "generate baseline report after analysis")
 	deduplicateCmd.Flags().BoolP("yes", "y", false, "skip approval and apply changes automatically")
 	deduplicateCmd.Flags().Bool("commit", false, "commit changes to git after successful refactoring")
+	deduplicateCmd.Flags().Bool("report", false, "generate report after deduplication")
 	idiomatizeCmd.Flags().BoolP("yes", "y", false, "skip approval and apply changes automatically")
+	idiomatizeCmd.Flags().Bool("report", false, "generate report after idiomatization")
 	patternCmd.Flags().BoolP("yes", "y", false, "skip approval and apply changes automatically")
+	patternCmd.Flags().Bool("report", false, "generate report after pattern injection")
 	reportCmd.Flags().StringP("session", "s", "", "session ID to report (default: last session)")
 
 	rootCmd.AddCommand(analyzeCmd)

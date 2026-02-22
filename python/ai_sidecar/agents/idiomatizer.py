@@ -42,12 +42,16 @@ class IdiomatizerAgent:
 
     async def _idiomatize_file(
         self,
-        file: Dict,
+        file,
         language: Language,
     ) -> List[FileChange]:
         changes = []
-        content = file["content"]
-        path = file["path"]
+        if hasattr(file, 'content'):
+            content = file.content
+            path = file.path
+        else:
+            content = file["content"]
+            path = file["path"]
 
         if language == Language.PYTHON:
             changes = self._idiomatize_python(content, path)
@@ -90,7 +94,7 @@ class IdiomatizerAgent:
         return None
 
     def _is_for_append_pattern(self, lines: List[str], idx: int) -> bool:
-        if idx + 2 >= len(lines):
+        if idx + 1 >= len(lines):
             return False
 
         line = lines[idx].strip()

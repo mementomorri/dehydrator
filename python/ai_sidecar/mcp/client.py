@@ -162,6 +162,43 @@ class MCPClient:
             params["session_id"] = session_id
         return await self.call("apply_diff", params)
 
+    async def apply_diff_safe(
+        self,
+        path: str,
+        diff: str,
+        session_id: Optional[str] = None,
+        run_tests: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Apply a unified diff with automatic rollback on test failure.
+        
+        Flow:
+        1. Create git checkpoint
+        2. Apply diff
+        3. Run tests (if run_tests=True)
+        4. If tests fail, automatically rollback
+        5. Return result with test status
+        
+        Returns:
+            Dict with keys:
+            - success: bool - whether the operation succeeded
+            - path: str - the file path
+            - checkpoint: str - the checkpoint commit hash
+            - tests_run: bool - whether tests were run
+            - tests_passed: bool - whether tests passed
+            - rolled_back: bool - whether a rollback occurred
+            - error: str (optional) - error message if failed
+            - test_output: str (optional) - test output
+        """
+        params = {
+            "path": path,
+            "diff": diff,
+            "run_tests": run_tests,
+        }
+        if session_id:
+            params["session_id"] = session_id
+        return await self.call("apply_diff_safe", params)
+
     async def run_tests(self) -> Dict[str, Any]:
         """Run the test suite."""
         return await self.call("run_tests")

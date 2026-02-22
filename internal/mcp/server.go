@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -163,6 +164,7 @@ func (s *Server) getHandler(method string) (HandlerFunc, bool) {
 		"get_ast":         s.handleGetAST,
 		"find_references": s.handleFindReferences,
 		"apply_diff":      s.handleApplyDiff,
+		"apply_diff_safe": s.handleApplyDiffSafe,
 		"run_tests":       s.handleRunTests,
 		"git_checkpoint":  s.handleGitCheckpoint,
 		"git_rollback":    s.handleGitRollback,
@@ -179,7 +181,7 @@ func (s *Server) handleInitialize(ctx context.Context, params json.RawMessage) (
 		"version": "0.1.0",
 		"tools": []string{
 			"read_file", "get_symbols", "get_ast", "find_references",
-			"apply_diff", "run_tests", "git_checkpoint", "git_rollback",
+			"apply_diff", "apply_diff_safe", "run_tests", "git_checkpoint", "git_rollback",
 			"list_files", "get_complexity",
 		},
 	}, nil
@@ -569,6 +571,104 @@ func (s *Server) handleApplyDiff(ctx context.Context, params json.RawMessage) (i
 	return map[string]interface{}{
 		"success": true,
 		"path":    input.Path,
+	}, nil
+}
+
+func (s *Server) handleApplyDiffSafe(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var input struct {
+		Path        string `json:"path"`
+		Diff        string `json:"diff"`
+		SessionID   string `json:"session_id,omitempty"`
+		RunTests    bool   `json:"run_tests,omitempty"`
+		TestCommand string `json:"test_command,omitempty"`
+	}
+	if err := json.Unmarshal(params, &input); err != nil {
+		return nil, NewError(InvalidParams, "Invalid params", err.Error())
+	}
+
+	checkpointResult, err := s.handleGitCheckpoint(ctx, json.RawMessage(`{"message":"checkpoint before safe diff"}`))
+	if err != nil {
+		return nil, NewError(GitConflict, "Failed to create checkpoint before diff", err.Error())
+	}
+	checkpointData := checkpointResult.(map[string]interface{})
+	checkpointHash := checkpointData["commit_hash"].(string)
+
+	_, err = s.handleApplyDiff(ctx, params)
+	if err != nil {
+		_, rollbackErr := s.handleGitRollback(ctx, nil)
+		if rollbackErr != nil {
+			return nil, NewError(InternalError, "Failed to apply diff and rollback",
+				fmt.Sprintf("apply error: %v, rollback error: %v", err, rollbackErr))
+		}
+		return nil, err
+	}
+
+	if !input.RunTests {
+		return map[string]interface{}{
+			"success":      true,
+			"path":         input.Path,
+			"checkpoint":   checkpointHash,
+			"tests_run":    false,
+			"tests_passed": true,
+			"rolled_back":  false,
+		}, nil
+	}
+
+	testResult, err := s.handleRunTests(ctx, nil)
+	if err != nil {
+		_, rollbackErr := s.handleGitRollback(ctx, nil)
+		if rollbackErr != nil {
+			return nil, NewError(InternalError, "Tests failed and rollback failed",
+				fmt.Sprintf("test error: %v, rollback error: %v", err, rollbackErr))
+		}
+		return map[string]interface{}{
+			"success":      false,
+			"path":         input.Path,
+			"checkpoint":   checkpointHash,
+			"tests_run":    true,
+			"tests_passed": false,
+			"rolled_back":  true,
+			"error":        fmt.Sprintf("Tests failed after diff, rolled back: %v", err),
+		}, nil
+	}
+
+	testData := testResult.(map[string]interface{})
+	testsPassed := testData["success"].(bool)
+
+	if !testsPassed {
+		_, rollbackErr := s.handleGitRollback(ctx, nil)
+		if rollbackErr != nil {
+			return map[string]interface{}{
+				"success":      false,
+				"path":         input.Path,
+				"checkpoint":   checkpointHash,
+				"tests_run":    true,
+				"tests_passed": false,
+				"rolled_back":  false,
+				"error":        fmt.Sprintf("Tests failed and rollback failed: %v", rollbackErr),
+				"test_output":  testData["output"],
+			}, nil
+		}
+		return map[string]interface{}{
+			"success":      false,
+			"path":         input.Path,
+			"checkpoint":   checkpointHash,
+			"tests_run":    true,
+			"tests_passed": false,
+			"rolled_back":  true,
+			"test_output":  testData["output"],
+			"error":        "Tests failed after diff, automatically rolled back",
+		}, nil
+	}
+
+	return map[string]interface{}{
+		"success":      true,
+		"path":         input.Path,
+		"checkpoint":   checkpointHash,
+		"tests_run":    true,
+		"tests_passed": true,
+		"rolled_back":  false,
+		"test_output":  testData["output"],
 	}, nil
 }
 
